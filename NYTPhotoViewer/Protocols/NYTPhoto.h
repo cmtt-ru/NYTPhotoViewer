@@ -40,6 +40,8 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property (nonatomic, readonly, nullable) UIImage *placeholderImage;
 
+@property (nonatomic, readonly, nullable) NSURL *videoURL;
+
 #pragma mark Caption
 
 /**

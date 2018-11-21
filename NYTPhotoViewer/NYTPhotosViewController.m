@@ -122,8 +122,9 @@ static const UIEdgeInsets NYTPhotosViewControllerCloseButtonImageInsets = {3, 0,
     self.transitionController.startingView = self.referenceViewForCurrentPhoto;
     
     UIView *endingView;
-    if (self.currentlyDisplayedPhoto.image || self.currentlyDisplayedPhoto.placeholderImage) {
-        endingView = self.currentPhotoViewController.scalingImageView.imageView;
+    
+    if (self.currentlyDisplayedPhoto.videoURL || self.currentlyDisplayedPhoto.image || self.currentlyDisplayedPhoto.placeholderImage) {
+        endingView = self.currentPhotoViewController.scalingImageView.contentView;
     }
     
     self.transitionController.endingView = endingView;
@@ -415,8 +416,9 @@ static const UIEdgeInsets NYTPhotosViewControllerCloseButtonImageInsets = {3, 0,
     }
     
     UIView *startingView;
-    if (self.currentlyDisplayedPhoto.image || self.currentlyDisplayedPhoto.placeholderImage || self.currentlyDisplayedPhoto.imageData) {
-        startingView = self.currentPhotoViewController.scalingImageView.imageView;
+    
+    if (self.currentlyDisplayedPhoto.videoURL || self.currentlyDisplayedPhoto.image || self.currentlyDisplayedPhoto.placeholderImage || self.currentlyDisplayedPhoto.imageData) {
+        startingView = self.currentPhotoViewController.scalingImageView.contentView;
     }
     
     self.transitionController.startingView = startingView;

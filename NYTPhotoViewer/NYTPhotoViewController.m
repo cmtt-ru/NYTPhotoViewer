@@ -71,6 +71,18 @@ NSString * const NYTPhotoViewControllerPhotoImageUpdatedNotification = @"NYTPhot
     [self.view addGestureRecognizer:self.longPressGestureRecognizer];
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    
+    [self.scalingImageView beginPlaying];
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    
+    [self.scalingImageView stopPlaying];
+}
+
 - (void)viewWillLayoutSubviews {
     [super viewWillLayoutSubviews];
     
@@ -99,7 +111,13 @@ NSString * const NYTPhotoViewControllerPhotoImageUpdatedNotification = @"NYTPhot
 - (void)commonInitWithPhoto:(id <NYTPhoto>)photo loadingView:(UIView *)loadingView notificationCenter:(NSNotificationCenter *)notificationCenter {
     _photo = photo;
     
-    if (photo.imageData) {
+    if (photo.videoURL) {
+        _scalingImageView = [[NYTScalingImageView alloc] initWithVideoURL:photo.videoURL frame:CGRectZero];
+        _scalingImageView.loadingDelegate = self;
+        
+        [self setupLoadingView:loadingView];
+    }
+    else if (photo.imageData) {
         _scalingImageView = [[NYTScalingImageView alloc] initWithImageData:photo.imageData frame:CGRectZero];
     }
     else {
@@ -159,7 +177,7 @@ NSString * const NYTPhotoViewControllerPhotoImageUpdatedNotification = @"NYTPhot
 }
 
 - (void)didDoubleTapWithGestureRecognizer:(UITapGestureRecognizer *)recognizer {
-    CGPoint pointInView = [recognizer locationInView:self.scalingImageView.imageView];
+    CGPoint pointInView = [recognizer locationInView:self.scalingImageView.contentView];
     
     CGFloat newZoomScale = self.scalingImageView.maximumZoomScale;
 
@@ -191,7 +209,7 @@ NSString * const NYTPhotoViewControllerPhotoImageUpdatedNotification = @"NYTPhot
 #pragma mark - UIScrollViewDelegate
 
 - (UIView *)viewForZoomingInScrollView:(UIScrollView *)scrollView {
-    return self.scalingImageView.imageView;
+    return self.scalingImageView.contentView;
 }
 
 - (void)scrollViewWillBeginZooming:(UIScrollView *)scrollView withView:(UIView *)view {
@@ -204,6 +222,11 @@ NSString * const NYTPhotoViewControllerPhotoImageUpdatedNotification = @"NYTPhot
     if (scrollView.zoomScale == scrollView.minimumZoomScale) {
         scrollView.panGestureRecognizer.enabled = NO;
     }
+}
+
+#pragma mark - NYTScalingImageViewLoadingDelegate
+- (void)scalingImageView:(NYTScalingImageView *)imageView didFinishedLoadingVideoAtURL:(NSURL *)url {
+    [self.loadingView removeFromSuperview];
 }
 
 @end

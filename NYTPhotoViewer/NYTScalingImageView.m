@@ -14,6 +14,8 @@
 #import <FLAnimatedImage/FLAnimatedImage.h>
 #endif
 
+#import <AVFoundation/AVFoundation.h>
+
 @interface NYTScalingImageView ()
 
 - (instancetype)initWithCoder:(NSCoder *)aDecoder NS_DESIGNATED_INITIALIZER;
@@ -23,9 +25,27 @@
 #else
 @property (nonatomic) UIImageView *imageView;
 #endif
+
+@property (nonatomic) NSURL *videoURL;
+
+@property (nonatomic) UIView *playerView;
+
+@property (nonatomic) AVPlayerItem *playerItem;
+@property (nonatomic) AVPlayer *player;
+@property (nonatomic) AVPlayerLayer *playerLayer;
+
 @end
 
 @implementation NYTScalingImageView
+
+- (UIView *)contentView {
+    if (self.player) {
+        return self.playerView;
+    }
+    else {
+        return self.imageView;
+    }
+}
 
 #pragma mark - UIView
 
@@ -50,6 +70,11 @@
 
 - (void)setFrame:(CGRect)frame {
     [super setFrame:frame];
+    
+    if (self.playerLayer) {
+        self.playerLayer.frame = self.playerView.bounds;
+    }
+    
     [self updateZoomScale];
     [self centerScrollViewContents];
 }
@@ -76,10 +101,100 @@
     return self;
 }
 
+- (instancetype)initWithVideoURL:(NSURL *)videoURL frame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    
+    if (self) {
+        [self commonInitWithVideoURL:videoURL];
+    }
+    
+    return self;
+}
+
+- (void)dealloc {
+    [self.player pause];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:self.playerItem];
+    
+    [self.playerItem removeObserver:self forKeyPath:@"status"];
+}
+
 - (void)commonInitWithImage:(UIImage *)image imageData:(NSData *)imageData {
     [self setupInternalImageViewWithImage:image imageData:imageData];
     [self setupImageScrollView];
     [self updateZoomScale];
+}
+
+- (void)commonInitWithVideoURL:(NSURL *)videoURL {
+    self.videoURL = videoURL;
+    
+    self.playerView = [[UIView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    self.playerView.hidden = YES;
+    self.playerView.userInteractionEnabled = NO;
+    self.playerView.backgroundColor = [UIColor blackColor];
+    
+    [self addSubview:self.playerView];
+    
+    self.contentSize = self.playerView.bounds.size;
+    
+    self.playerItem = [AVPlayerItem playerItemWithURL:videoURL];
+    
+    [self.playerItem addObserver:self forKeyPath:@"status" options:(NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew) context:nil];
+    
+    self.player = [AVPlayer playerWithPlayerItem:self.playerItem];
+    self.playerLayer = [AVPlayerLayer playerLayerWithPlayer:self.player];
+    self.playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
+    
+    [self.playerView.layer addSublayer:self.playerLayer];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handlePlayerItemDidPlayToEndTime:) name:AVPlayerItemDidPlayToEndTimeNotification object:self.playerItem];
+    
+    [AVAudioSession.sharedInstance setCategory:AVAudioSessionCategoryAmbient withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
+
+    [self.player play];
+    
+    [self updateZoomScale];
+    [self centerScrollViewContents];
+}
+
+- (void)handlePlayerItemDidPlayToEndTime:(NSNotification *)notification {
+    if (notification && notification.object == self.playerItem) {
+        [self.player seekToTime:kCMTimeZero];
+        [self.player play];
+    }
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    if (object == self.playerItem && change && [keyPath isEqualToString:@"status"]) {
+        NSNumber *newValue = change[NSKeyValueChangeNewKey];
+        
+        if (newValue) {
+            AVPlayerStatus status = (AVPlayerStatus)newValue.integerValue;
+            
+            if (status == AVPlayerStatusReadyToPlay) {
+                CGSize naturalSize = self.playerItem.asset.naturalSize;
+
+                CGRect newPlayerViewFrame = CGRectMake(0.0, 0.0, naturalSize.width, naturalSize.height);
+                
+                self.playerView.transform = CGAffineTransformIdentity;
+                self.playerView.frame = newPlayerViewFrame;
+                self.playerLayer.frame = newPlayerViewFrame;
+                self.contentSize = newPlayerViewFrame.size;
+                
+                [self updateZoomScale];
+                [self centerScrollViewContents];
+                
+                [self setNeedsLayout];
+                [self layoutIfNeeded];
+                
+                self.playerView.hidden = NO;
+                
+                if (self.loadingDelegate && [self.loadingDelegate respondsToSelector:@selector(scalingImageView:didFinishedLoadingVideoAtURL:)]) {
+                    [self.loadingDelegate scalingImageView:self didFinishedLoadingVideoAtURL:self.videoURL];
+                }
+            }
+        }
+    }
 }
 
 #pragma mark - Setup
@@ -141,16 +256,60 @@
     self.decelerationRate = UIScrollViewDecelerationRateFast;
 }
 
+- (void)stopPlaying {
+    if (!self.player) {
+        return;
+    }
+    
+    [self.player pause];
+    [self.player seekToTime:kCMTimeZero];
+}
+
+- (void)beginPlaying {
+    if (!self.player) {
+        return;
+    }
+    
+    [self.player seekToTime:kCMTimeZero];
+    [self.player play];
+}
+
 - (void)updateZoomScale {
-#ifdef ANIMATED_GIF_SUPPORT
-    if (self.imageView.animatedImage || self.imageView.image) {
-#else
-    if (self.imageView.image) {
-#endif
-        CGRect scrollViewFrame = self.bounds;
+    CGRect scrollViewFrame = self.bounds;
+    
+    if (self.playerLayer) {
+        CGFloat scaleWidth = 1.0;
+        CGFloat scaleHeight = 1.0;
         
+        if (!CGSizeEqualToSize(self.playerItem.asset.naturalSize, CGSizeZero)) {
+            CGSize naturalSize = self.playerItem.asset.naturalSize;
+            scaleWidth = scrollViewFrame.size.width / naturalSize.width;
+            scaleHeight = scrollViewFrame.size.height / naturalSize.height;
+        }
+        
+        CGFloat minScale = MIN(scaleWidth, scaleHeight);
+        
+        self.minimumZoomScale = minScale;
+        self.maximumZoomScale = MAX(minScale, self.maximumZoomScale);
+        
+        self.zoomScale = self.minimumZoomScale;
+        
+        // scrollView.panGestureRecognizer.enabled is on by default and enabled by
+        // viewWillLayoutSubviews in the container controller so disable it here
+        // to prevent an interference with the container controller's pan gesture.
+        //
+        // This is enabled in scrollViewWillBeginZooming so panning while zoomed-in
+        // is unaffected.
+        self.panGestureRecognizer.enabled = NO;
+    }
+#ifdef ANIMATED_GIF_SUPPORT
+    else if (self.imageView.animatedImage || self.imageView.image) {
+#else
+    else if (self.imageView.image) {
+#endif
         CGFloat scaleWidth = scrollViewFrame.size.width / self.imageView.image.size.width;
         CGFloat scaleHeight = scrollViewFrame.size.height / self.imageView.image.size.height;
+        
         CGFloat minScale = MIN(scaleWidth, scaleHeight);
         
         self.minimumZoomScale = minScale;
